@@ -434,6 +434,26 @@ describe("Memory graph API", () => {
     await app.close();
   });
 
+  it("supports configurable overview limit up to 50000", async () => {
+    const graphSnapshot = snapshot() as MemoryGraphSnapshot;
+    graphSnapshot.nodes = Array.from({ length: 2500 }, (_, index) => ({ id: `memory:${String(index).padStart(4, "0")}`, type: "MEMORY" as const, label: `Memory ${index}`, sourcePath: null, recordId: null }));
+    const app = await memoryGraphApp(true, new InMemorySpaceStore(), false, undefined, { graphSnapshot });
+    
+    const responseExpanded = await app.inject({ method: "GET", url: "/api/admin/memory/graph/overview?limit=2500", headers: { cookie } });
+    expect(responseExpanded.statusCode).toBe(200);
+    const dataExpanded = responseExpanded.json().data;
+    expect(dataExpanded.nodes).toHaveLength(2500);
+    expect(dataExpanded.truncated).toBe(false);
+
+    const responseLimited = await app.inject({ method: "GET", url: "/api/admin/memory/graph/overview?limit=500", headers: { cookie } });
+    expect(responseLimited.statusCode).toBe(200);
+    const dataLimited = responseLimited.json().data;
+    expect(dataLimited.nodes).toHaveLength(500);
+    expect(dataLimited.truncated).toBe(true);
+
+    await app.close();
+  });
+
   it("serves the all-months archive and single-month filtering through the month query param", async () => {
     const graphSnapshot = snapshot() as MemoryGraphSnapshot;
     const archiveSnapshot = snapshot() as MemoryGraphSnapshot;

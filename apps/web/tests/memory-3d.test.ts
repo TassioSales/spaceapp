@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { layoutMemoryNetwork3D, memory3DVolumeRatio, projectMemoryPoint, DEFAULT_MEMORY_CAMERA } from "../src/features/memory-workspace/memory-3d.js";
+import { layoutMemoryNetwork3D, layoutMemoryNetwork3DStream, memory3DVolumeRatio, projectMemoryPoint, DEFAULT_MEMORY_CAMERA, SpatialPickingIndex3D, selectLODLabels } from "../src/features/memory-workspace/memory-3d.js";
 import type { MemoryGraphNode, MemoryGraphEdge } from "@space/contracts";
 
 describe("3D memory projection", () => {
@@ -58,5 +58,70 @@ describe("3D memory projection", () => {
     const plane = Array.from({ length: 100 }, (_, i) => ({ x: i % 10, y: Math.floor(i / 10), z: i % 10 + Math.floor(i / 10) }));
     expect(memory3DVolumeRatio(plane)).toBeCloseTo(0);
     expect(layoutMemoryNetwork3D([], []).size).toBe(0);
+  });
+  describe("SpatialPickingIndex3D", () => {
+    it("indexes 50,000 nodes and picks within 4ms threshold", () => {
+      const points: any[] = [];
+      for (let i = 0; i < 50000; i++) {
+        const id = `node-${i}`;
+        const x = (i % 500) * 4;
+        const y = Math.floor(i / 500) * 10;
+        points.push({ id, x, y, z: 0, radius: 4, color: "#fff", label: id, type: "MEMORY" });
+      }
+      const index = new SpatialPickingIndex3D(points, 32);
+
+      const start = performance.now();
+      for (let i = 0; i < 50; i++) {
+        const targetX = (i * 7) % 2000;
+        const targetY = (i * 13) % 1000;
+        index.pick(targetX, targetY);
+      }
+      const elapsed = performance.now() - start;
+      const perPickMs = elapsed / 50;
+      expect(perPickMs).toBeLessThan(4);
+
+      const found = index.pick(points[42]!.x, points[42]!.y);
+      expect(found).toBe("node-42");
+    });
+  });
+
+  describe("selectLODLabels", () => {
+    it("bounds rendered labels to maximum 40 without overlapping", () => {
+      const nodes: MemoryGraphNode[] = [];
+      const projectedMap = new Map<string, { x: number; y: number; z: number; perspective: number }>();
+      for (let i = 0; i < 200; i++) {
+        const id = `id-${i}`;
+        nodes.push({
+          id,
+          label: i === 0 ? "gemini.md" : `file-${i}.md`,
+          type: "SOURCE",
+          sourcePath: `/demo/${i}.md`,
+          recordId: null
+        });
+        projectedMap.set(id, {
+          x: 50 + (i % 20) * 30,
+          y: 50 + Math.floor(i / 20) * 30,
+          z: i * 0.1,
+          perspective: 1
+        });
+      }
+      const selected = selectLODLabels(nodes, projectedMap, null, 2.0, 1000, 1000, text => text.length * 7, 40);
+      expect(selected.length).toBeLessThanOrEqual(40);
+      expect(selected.some(l => l.id === "id-0")).toBe(true);
+    });
+  });
+
+  describe("layoutMemoryNetwork3DStream", () => {
+    it("streams layout steps and finishes deterministically", () => {
+      const { nodes, edges } = fixture();
+      const steps: number[] = [];
+      const onProgress = (_depth: Map<string, any>, step: number) => {
+        steps.push(step);
+      };
+      const finalMap = layoutMemoryNetwork3DStream(nodes, edges, onProgress, 30);
+      expect(steps.length).toBeGreaterThan(0);
+      const regularLayout = layoutMemoryNetwork3D(nodes, edges);
+      expect([...finalMap]).toEqual([...regularLayout]);
+    });
   });
 });

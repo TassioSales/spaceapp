@@ -668,6 +668,33 @@ export class DemoStore {
     };
   }
 
+  public static generateSyntheticMemoryGraph(nodeCount = 2000): { nodes: MemoryGraphNode[]; edges: MemoryGraphEdge[] } {
+    const nodes: MemoryGraphNode[] = [
+      { id: "source:root", label: "gemini.md", type: "SOURCE", sourcePath: "/demo/docs/gemini.md", recordId: null }
+    ];
+    const edges: MemoryGraphEdge[] = [];
+    const sourceCount = Math.max(12, Math.floor(nodeCount / 35));
+    for (let f = 0; f < sourceCount; f++) {
+      const srcId = `source:file-${f}`;
+      nodes.push({ id: srcId, label: `file-${f}.md`, type: "SOURCE", sourcePath: `/demo/docs/file-${f}.md`, recordId: null });
+      edges.push({ id: `edge:root-${f}`, type: "DERIVED_FROM", source: "source:root", target: srcId });
+    }
+    let currentIdx = nodes.length;
+    while (nodes.length < nodeCount) {
+      const parentSource = nodes[1 + (currentIdx % sourceCount)]!;
+      const memId = `memory:record-${currentIdx}`;
+      nodes.push({ id: memId, label: `Record ${currentIdx}`, type: "MEMORY", sourcePath: parentSource.sourcePath, recordId: memId });
+      edges.push({ id: `edge:contains-${currentIdx}`, type: "CONTAINS", source: parentSource.id, target: memId });
+      if (currentIdx % 3 === 0 && nodes.length < nodeCount) {
+        const topicId = `topic:topic-${Math.floor(currentIdx / 3)}`;
+        nodes.push({ id: topicId, label: `Topic ${Math.floor(currentIdx / 3)}`, type: "TOPIC", sourcePath: parentSource.sourcePath, recordId: null });
+        edges.push({ id: `edge:tag-${currentIdx}`, type: "TAGGED_WITH", source: memId, target: topicId });
+      }
+      currentIdx++;
+    }
+    return { nodes: nodes.slice(0, nodeCount), edges };
+  }
+
   private memoryGraph(query: DemoMemoryGraphQuery = {}): MemoryGraphPayload {
     const base = this.fixture.memoryWorkspace.graph;
     const needle = query.q?.trim().toLowerCase();
@@ -1513,6 +1540,21 @@ export class DemoStore {
         });
       }
       case "memoryGraphOverview": {
+        const query = (args[0] ?? {}) as DemoMemoryGraphQuery & { limit?: number; synthetic?: boolean };
+        if (query.synthetic || (query.limit && query.limit > 2000)) {
+          const count = query.limit ?? 2000;
+          const synthetic = DemoStore.generateSyntheticMemoryGraph(count);
+          return Promise.resolve({
+            data: {
+              ...this.fixture.memoryWorkspace.graph,
+              nodes: synthetic.nodes,
+              edges: synthetic.edges,
+              totalMatchingNodes: synthetic.nodes.length,
+              totalMatchingEdges: synthetic.edges.length,
+              truncated: false
+            }
+          });
+        }
         const graph = this.memoryGraph((args[0] ?? {}) as DemoMemoryGraphQuery);
         return Promise.resolve({ data: { ...graph, totalMatchingNodes: graph.nodes.length, totalMatchingEdges: graph.edges.length, truncated: false } });
       }

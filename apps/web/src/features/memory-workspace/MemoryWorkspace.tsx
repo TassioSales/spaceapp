@@ -75,12 +75,12 @@ export function MemoryWorkspace({ shellMode, onClose, initialMode = "calendar" }
     setError(null);
     closeDetail();
     // Search covers the entire archive; removing the month picker must not hide old memories.
-    void api.memoryGraphOverview({ q: query || undefined, month: "all", relationMode: "RELATIONS" })
+    void api.memoryGraphOverview({ q: query || undefined, month: "all", relationMode: "RELATIONS", limit: view3D ? 50000 : 2000 })
       .then(payload => { if (active) setGraph(payload); })
       .catch(caught => { if (active) setError(caught instanceof Error ? caught.message : "Memory could not be loaded."); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [workspaceMode, query, closeDetail]);
+  }, [workspaceMode, query, view3D, closeDetail]);
 
   useEffect(() => () => { detailRequest.current++; }, []);
   const selectNode = useCallback((nodeId: string) => {
@@ -100,10 +100,15 @@ export function MemoryWorkspace({ shellMode, onClose, initialMode = "calendar" }
   useEffect(() => {
     if (workspaceMode !== "atlas" || !atlas.nodes.length || typeof Worker === "undefined") return;
     const worker = new Worker(new URL("./memory-network-layout.worker.ts", import.meta.url), { type: "module" });
-    worker.onmessage = (event: MessageEvent<{ positions: Array<[string, { x: number; y: number }]>; depth: Array<[string, MemoryPoint3D]> }>) => {
-      const coordinates = new Map(event.data.positions);
-      setLayout({ atlas, depth: new Map(event.data.depth), positions: new Map([...atlas.positions].map(([id, position]) => [id, { ...position, ...coordinates.get(id) }])) });
-      worker.terminate();
+    worker.onmessage = (event: MessageEvent<{ type?: "progress" | "done"; step?: number; totalSteps?: number; positions: Array<[string, { x: number; y: number }]>; depth: Array<[string, MemoryPoint3D]> }>) => {
+      const data = event.data;
+      if (data.positions && data.depth) {
+        const coordinates = new Map(data.positions);
+        setLayout({ atlas, depth: new Map(data.depth), positions: new Map([...atlas.positions].map(([id, position]) => [id, { ...position, ...coordinates.get(id) }])) });
+      }
+      if (!data.type || data.type === "done") {
+        worker.terminate();
+      }
     };
     worker.onerror = event => { setError(`Memory layout could not be calculated: ${event.message || "worker unavailable"}`); worker.terminate(); };
     worker.postMessage({ nodes: atlas.nodes, edges: atlas.edges });
