@@ -92,7 +92,7 @@ Coordinate multi-step tasks conversationally through the Room Agent or speak nat
 - **Hardware**:
   - Minimum (`small` profile): 4 CPU cores, 8 GB-class RAM (at least 7 GiB reported by the operating system), 6.5 GiB free disk.
   - `large` profile (adds the managed browser): 8 CPU cores, 15 GiB RAM, 11 GiB free disk.
-- **Docker**: If Docker is not installed, the installer automatically installs official Docker Desktop (Windows/macOS) or Docker Engine (Linux).
+- **Container Engine**: **Docker** (default) or rootless **Podman** (Podman ≥ 5.0.0). If Docker is not installed and no engine is specified, the installer automatically installs official Docker Desktop (Windows/macOS) or Docker Engine (Linux). When Podman is installed, select it using `--engine podman` (or via the interactive installer). Rootless Podman requires cgroup v2 on Linux; macOS runs Podman via a Podman machine. Note that `--access host-root` is restricted to Docker on Linux.
 
 ### Run the Installation Command
 

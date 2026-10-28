@@ -20,6 +20,11 @@ import {
 import { UNIVERSAL_COMMAND } from "./package-info.mjs";
 import { imageVerificationOff, verifyLockedImages } from "./image-attestations.mjs";
 import { IMAGE_TARGETS, imageDigestEnv, PACKAGE_IMAGE_LOCK, parseRecordedDigests } from "./image-lock.mjs";
+import {
+  composeBinary,
+  defaultEngine,
+  normalizeEngine
+} from "./engine.mjs";
 
 const CONFIG_SCHEMA_VERSION = 4;
 const CONTAINER_SECRET_MODE = 0o644;
@@ -128,6 +133,7 @@ const CONFIG_KEYS = new Set([
   "telemetry",
   "profile",
   "accessMode",
+  "engine",
   "workspaces",
   "companionsEnabled",
   "optionalModules",
@@ -311,6 +317,7 @@ export function createDefaultConfig({
   version,
   profile = "light",
   accessMode = "isolated",
+  engine,
   companionsEnabled = false
 }) {
   assertVersion(version);
@@ -327,6 +334,7 @@ export function createDefaultConfig({
     telemetry: false,
     profile,
     accessMode: resolvedAccessMode,
+    ...(engine ? { engine: normalizeEngine(engine) } : {}),
     companionsEnabled,
     optionalModules: "none",
     workspaces: []
@@ -367,6 +375,7 @@ export function validateConfig(config) {
   if (config.accessMode !== "isolated" && config.accessMode !== "host-root") {
     throw new Error("accessMode must be isolated or host-root.");
   }
+  normalizeEngine(config.engine ?? defaultEngine());
   if (typeof config.companionsEnabled !== "boolean") {
     throw new Error("companionsEnabled must be boolean.");
   }
@@ -442,19 +451,19 @@ export async function loadConfig(root) {
 }
 
 function migrateConfig(config) {
+  if (config?.schemaVersion === 3) {
+    return {
+      ...config,
+      schemaVersion: CONFIG_SCHEMA_VERSION,
+      ...(config.companionsEnabled === undefined ? { companionsEnabled: false } : {})
+    };
+  }
   if (config?.schemaVersion === 2) {
     return {
       ...config,
       schemaVersion: CONFIG_SCHEMA_VERSION,
       accessMode: "isolated",
       companionsEnabled: false
-    };
-  }
-  if (config?.schemaVersion === 3) {
-    return {
-      ...config,
-      schemaVersion: CONFIG_SCHEMA_VERSION,
-      ...(config.companionsEnabled === undefined ? { companionsEnabled: false } : {})
     };
   }
   if (config?.schemaVersion !== 1) {
@@ -472,7 +481,6 @@ function migrateConfig(config) {
     companionsEnabled: false
   };
 }
-
 export function planConfigRepairs(rawConfig) {
   const actions = [];
   if (!rawConfig || typeof rawConfig !== "object" || Array.isArray(rawConfig)) {
@@ -676,17 +684,31 @@ const CLI_SANDBOX_OPTIONS = ["    security_opt:", "      - seccomp=./seccomp-cli
 
 export function renderWorkspaceCompose(config, { cliSandbox = false } = {}) {
   validateConfig(config);
+  const isPodman = config.engine === "podman";
+  const bindOpts = isPodman ? ["        bind:", '          selinux: "z"'] : [];
+  const usernsOpt = isPodman ? ['    userns_mode: "keep-id:uid=10001,gid=10001"'] : [];
   const mounts = config.workspaces.flatMap((workspace) => [
     "      - type: bind",
     `        source: ${JSON.stringify(workspace.hostPath)}`,
     `        target: ${JSON.stringify(workspace.containerPath)}`,
-    `        read_only: ${workspace.readOnly}`
+    `        read_only: ${workspace.readOnly}`,
+    ...bindOpts
   ]);
   const service = mounts.length > 0
     ? ["    volumes:", ...mounts]
     : ["    volumes: []"];
   if (config.users === undefined) {
-    return ["services:", "  spaceapp-core:", ...service, "  spaceapp-cli:", ...service, ...(cliSandbox ? CLI_SANDBOX_OPTIONS : []), ""].join("\n");
+    return [
+      "services:",
+      "  spaceapp-core:",
+      ...service,
+      ...usernsOpt,
+      "  spaceapp-cli:",
+      ...service,
+      ...usernsOpt,
+      ...(cliSandbox ? CLI_SANDBOX_OPTIONS : []),
+      ""
+    ].join("\n");
   }
   // "user enable": accounts are on, and the core starts a USER's CLIs only in that user's own container.
   const users = config.users;
@@ -695,7 +717,8 @@ export function renderWorkspaceCompose(config, { cliSandbox = false } = {}) {
     "      - type: bind",
     `        source: ${JSON.stringify(workspace.hostPath)}`,
     `        target: ${JSON.stringify(workspace.containerPath)}`,
-    `        read_only: ${workspace.readOnly}`
+    `        read_only: ${workspace.readOnly}`,
+    ...bindOpts
   ];
   const userServices = users.flatMap((user) => {
     const slug = userSlug(user.id);
@@ -705,6 +728,7 @@ export function renderWorkspaceCompose(config, { cliSandbox = false } = {}) {
       "    image: ghcr.io/oll4com/spaceapp-cli:${SPACEAPP_IMAGE_TAG}${SPACEAPP_CLI_IMAGE_DIGEST:-}",
       "    restart: unless-stopped",
       "    init: true",
+      ...usernsOpt,
       "    security_opt:",
       "      - no-new-privileges:true",
       ...(cliSandbox ? CLI_SANDBOX_OPTIONS.slice(1) : []),
@@ -736,8 +760,10 @@ export function renderWorkspaceCompose(config, { cliSandbox = false } = {}) {
     ...(mounts.length > 0 ? mounts : []),
     "      - ./cli-hosts.json:/etc/spaceapp/cli-hosts.json:ro",
     ...users.map((user) => `      - spaceapp-cli-socket-${userSlug(user.id)}:/run/spaceapp-cli-users/${userSlug(user.id)}`),
+    ...usernsOpt,
     "  spaceapp-cli:",
     ...service,
+    ...usernsOpt,
     ...(cliSandbox ? CLI_SANDBOX_OPTIONS : []),
     ...userServices,
     ...(users.length > 0 ? ["volumes:"] : []),
@@ -789,6 +815,7 @@ export function composeCommand(action, root, options = {}) {
   const stateRoot = options.stateRoot ?? root;
   validateHome(stateRoot);
   const profile = options.profile ?? "standard";
+  const engine = options.engine ?? defaultEngine();
   const settings = profileRuntimeSettings(profile);
   const base = [
     "compose",
@@ -909,7 +936,7 @@ export function composeCommand(action, root, options = {}) {
   if (!selected) {
     throw new Error(`Unsupported Compose action "${action}".`);
   }
-  return { command: "docker", args: [...base, ...selected] };
+  return { command: composeBinary(engine), args: [...base, ...selected] };
 }
 
 export function composeProjectName(root) {
@@ -984,6 +1011,7 @@ export async function prepareInstallation(root, {
   version,
   profile,
   accessMode,
+  engine,
   companionsEnabled
 }) {
   validateHome(root);
@@ -1007,6 +1035,7 @@ export async function prepareInstallation(root, {
       version,
       profile: resolvedProfile ?? "light",
       accessMode: resolveInstallAccessMode(accessMode),
+      engine: engine ?? defaultEngine(),
       companionsEnabled
     });
   }
@@ -1023,6 +1052,10 @@ export async function prepareInstallation(root, {
   const resolvedAccessMode = resolveInstallAccessMode(accessMode, config.accessMode);
   if (config.accessMode !== resolvedAccessMode) {
     config = { ...config, accessMode: resolvedAccessMode };
+  }
+  const resolvedEngine = engine ?? config.engine ?? defaultEngine();
+  if (config.engine !== resolvedEngine) {
+    config = { ...config, engine: normalizeEngine(resolvedEngine) };
   }
   if (companionsEnabled !== undefined && config.companionsEnabled !== companionsEnabled) {
     config = { ...config, companionsEnabled };

@@ -1,9 +1,9 @@
 # Getting started
 
 SpaceApp packages its application services and redistributable AI coding CLIs
-in Docker. The host needs Node.js only for the small `spaceapp` launcher,
+in container images orchestrated via Docker or rootless Podman. The host needs Node.js only for the small `spaceapp` launcher,
 and enough resources for the stack. The launcher installs and starts Docker
-automatically when it is missing.
+automatically when it is missing, or can use an existing rootless Podman installation.
 
 ## Requirements
 
@@ -38,6 +38,20 @@ the native `docker` and `docker-compose` packages through `pacman`. It then
 starts the service. Before adding the current user to the `docker` group, it
 explains that the group grants root-level privileges, adds the user
 automatically, and continues in the same command.
+
+### Rootless Podman on Linux
+
+To install using rootless Podman instead of Docker:
+
+```bash
+npx --yes run-spaceapp@latest install --engine podman
+```
+
+Requirements for Podman on Linux:
+- Podman >= 5.0.0 and the `docker-compose-plugin` provider (`podman compose`).
+- cgroup v2 with cpu and memory delegation enabled.
+- Bind mounts (`workspace add`) automatically configure SELinux container labels (`:z`).
+- Note: `--access host-root` requires Docker and cannot be used with Podman.
 
 ## macOS
 
