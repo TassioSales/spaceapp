@@ -47,6 +47,8 @@ describe("OTLP span export configuration", () => {
     expect(otlpTracesUrl("not a url")).toBeNull();
     expect(otlpTracesUrl("http://127.0.0.1:4318/")).toBe("http://127.0.0.1:4318/v1/traces");
     expect(otlpTracesUrl("https://otel.example/base//")).toBe("https://otel.example/base/v1/traces");
+    expect(otlpTracesUrl("http://collector:4318/v1/traces")).toBe("http://collector:4318/v1/traces");
+    expect(otlpTracesUrl("http://collector:4318/v1/traces/")).toBe("http://collector:4318/v1/traces");
     expect(otlpSpanExporterFromEnv({}, "space-api")).toBeNull();
     expect(otlpSpanExporterFromEnv({ SPACE_OTEL_EXPORTER_OTLP_ENDPOINT: "javascript:alert(1)" }, "space-api")).toBeNull();
   });
