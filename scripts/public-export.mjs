@@ -96,6 +96,8 @@ const publicScripts = new Set([
   "scripts/embed-image-lock.mjs",
   "scripts/tests/embed-image-lock.test.mjs",
   "scripts/tests/opencode-standalone.test.mjs",
+  "scripts/ci-container-smoke.mjs",
+  "scripts/prune-container-closures.mjs",
   "scripts/container-image-size-budget.mjs",
   "scripts/fix-build-permissions.mjs",
   "scripts/portable-backup.mjs",
@@ -112,6 +114,8 @@ const publicScripts = new Set([
   // run-spaceapp 1.1.8: the lab installs of the published package ran its locked images (review IR117-C-F7).
   "scripts/shipped-image-evidence.mjs",
   "scripts/tests/shipped-image-evidence.test.mjs",
+  "scripts/tests/ci-container-smoke.test.mjs",
+  "scripts/tests/prune-container-closures.test.mjs",
   "scripts/tests/container-image-size-budget.test.mjs",
   "scripts/tests/mcp-hono-compatibility.test.mjs",
   "scripts/tests/portable-backup-restore.test.mjs",
